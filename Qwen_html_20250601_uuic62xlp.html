@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Stream Pro</title>
+  <script src="https://cdn.tailwindcss.com"></script> 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script> 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script> 
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script> 
+  <script src="https://unpkg.com/lucide-react@0.441.0/dist/umd/lucide-react.min.js"></script> 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.25.7/babel.min.js"></script> 
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useCallback, memo, useRef } = React;
+    const { Play, Heart, Lock, Search, Menu, X, Maximize, Minimize, Volume2, VolumeX, SkipBack, SkipForward, Pause } = window.Lucide;
+
+    const StreamingApp = () => {
+      const [selectedCategory, setSelectedCategory] = useState('sports');
+      const [isMenuOpen, setIsMenuOpen] = useState(false);
+      const [favoriteChannels, setFavoriteChannels] = useState([]);
+      const [selectedChannel, setSelectedChannel] = useState(null);
+      const [isPlayerOpen, setIsPlayerOpen] = useState(false);
+      const [isFullscreen, setIsFullscreen] = useState(false);
+      const [showAgeVerification, setShowAgeVerification] = useState(false);
+      const [isAdultVerified, setIsAdultVerified] = useState(false);
+      const [isPlaying, setIsPlaying] = useState(true);
+      const [isMuted, setIsMuted] = useState(false);
+      const [volume, setVolume] = useState(50);
+      const [searchQuery, setSearchQuery] = useState('');
+      const [isLoading, setIsLoading] = useState(true);
+      const [error, setError] = useState(null);
+
+      // بيانات القنوات الثابتة
+      const channels = {
+        sports: [
+          {
+            id: 1,
+            name: 'Sports Live 1',
+            category: 'Sports',
+            quality: 'HD',
+            live: true,
+            viewers: '125K',
+            url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',  // HLS test stream
+            thumbnail: 'https://via.placeholder.com/320x180?text=Sports+Live+1'
+          },
+          {
+            id: 2,
+            name: 'Sports Live 2',
+            category: 'Sports',
+            quality: 'FHD',
+            live: true,
+            viewers: '89K',
+            url: 'https://bitdash-a.akamaihd.net/content/sintel/hls/playlist.m3u8', // HLS test stream
+            thumbnail: 'https://via.placeholder.com/320x180?text=Sports+Live+2'
+          },
+          {
+            id: 3,
+            name: 'Sports Premier',
+            category: 'Sports Prime',
+            quality: '4K',
+            live: true,
+            viewers: '203K',
+            url: 'https://test-streams.mux.dev/test_001/stream.m3u8', // HLS test stream
+            thumbnail: 'https://via.placeholder.com/320x180?text=Sports+Premier'
+          }
+        ],
+        european: [
+          {
+            id: 101,
+            name: 'Euro Live 1',
+            category: 'Adult',
+            quality: 'HD',
+            live: true,
+            viewers: '78K',
+            restricted: true,
+            url: 'https://bitdash-a.akamaihd.net/content/MI201109210084_1/m3u8s/f08e80da-bf1d-4e3d-8899-f0f6155f6efa.m3u8', // HLS test stream
+            thumbnail: 'https://via.placeholder.com/320x180?text=Euro+Live+1'
+          },
+          {
+            id: 102,
+            name: 'Euro Live 2',
+            category: 'Adult',
+            quality: 'FHD',
+            live: true,
+            viewers: '92K',
+            restricted: true,
+            url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8', // HLS test stream
+            thumbnail: 'https://via.placeholder.com/320x180?text=Euro+Live+2'
+          }
+        ]
+      };
+
+      // التحقق من العمر عند الدخول إلى تصنيف الأفلام الأوروبية
+      useEffect(() => {
+        if (selectedCategory === 'european' && !isAdultVerified) {
+          setShowAgeVerification(true);
+        }
+      }, [selectedCategory, isAdultVerified]);
+
+      // تخزين المفضلة في localStorage
+      useEffect(() => {
+        const savedFavorites = localStorage.getItem('favoriteChannels');
+        if (savedFavorites) {
+          setFavoriteChannels(JSON.parse(savedFavorites));
+        }
+      }, []);
+
+      useEffect(() => {
+        localStorage.setItem('favoriteChannels', JSON.stringify(favoriteChannels));
+      }, [favoriteChannels]);
+
+      const toggleFavorite = useCallback((channelId) => {
+        setFavoriteChannels(prev =>
+          prev.includes(channelId)
+            ? prev.filter(id => id !== channelId)
+            : [...prev, channelId]
+        );
+      }, []);
+
+      const playChannel = useCallback((channel) => {
+        if (channel.restricted && !isAdultVerified) {
+          setShowAgeVerification(true);
+        } else {
+          setSelectedChannel(channel);
+          setIsPlayerOpen(true);
+          setIsPlaying(true);
+        }
+      }, [isAdultVerified]);
+
+      const closePlayer = useCallback(() => {
+        setIsPlayerOpen(false);
+        setSelectedChannel(null);
+        setIsFullscreen(false);
+      }, []);
+
+      const toggleFullscreen = useCallback(() => {
+        setIsFullscreen(prev => !prev);
+      }, []);
+
+      const handleAgeVerification = useCallback(() => {
+        setIsAdultVerified(true);
+        setShowAgeVerification(false);
+      }, []);
+
+      const filteredChannels = channels[selectedCategory]?.filter(channel =>
+        channel.name.toLowerCase().includes(searchQuery.toLowerCase())
+      ) || [];
+
+      // Channel Card Component
+      const ChannelCard = memo(({ channel }) => (
+        <div className="bg-gray-800 rounded-lg overflow-hidden hover:bg-gray-750 transition-all duration-300 transform hover:scale-105">
+          <div className="relative">
+            <div
+              className="aspect-video bg-gradient-to-br from-blue-600 to-purple-700 flex items-center justify-center cursor-pointer hover:opacity-90 relative overflow-hidden"
+              onClick={() => playChannel(channel)}
+            >
+              {channel.thumbnail ? (
+                <img
+                  src={channel.thumbnail}
+                  alt={channel.name}
+                  className="w-full h-full object-cover"
+                  onError={(e) => e.target.style.display = 'none'}
+                />
+              ) : (
+                <div className="w-full h-full bg-gradient-to-br from-blue-600 to-purple-700" />
+              )}
+              <div className="absolute inset-0 bg-black bg-opacity-30 flex items-center justify-center">
+                <Play className="w-12 h-12 text-white opacity-80 drop-shadow-lg" />
+              </div>
+            </div>
+            {channel.live && (
+              <span className="absolute top-2 left-2 bg-red-600 text-white px-2 py-1 rounded text-xs font-bold animate-pulse">
+                LIVE
+              </span>
+            )}
+            {channel.restricted && (
+              <Lock className="absolute top-2 right-2 w-5 h-5 text-yellow-400" />
+            )}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleFavorite(channel.id);
+              }}
+              className="absolute bottom-2 right-2 p-1 bg-black bg-opacity-50 rounded-full hover:bg-opacity-70"
+              aria-label={favoriteChannels.includes(channel.id) ? 'إزالة من المفضلة' : 'إضافة إلى المفضلة'}
+            >
+              <Heart
+                className={`w-4 h-4 ${favoriteChannels.includes(channel.id) ? 'text-red-500 fill-current' : 'text-white'}`}
+              />
+            </button>
+          </div>
+          <div className="p-4">
+            <h3 className="text-white font-semibold text-sm mb-1">{channel.name}</h3>
+            <div className="flex justify-between items-center text-xs text-gray-400">
+              <span className="bg-blue-600 text-white px-2 py-1 rounded">{channel.quality}</span>
+              <div className="flex items-center gap-1">
+                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                <span>{channel.viewers}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      ));
+
+      // Video Player Component
+      const VideoPlayer = ({ channel, onClose }) => {
+        const videoRef = useRef(null);
+        const hlsRef = useRef(null);
+        const [videoError, setVideoError] = useState(null);
+        const [isBuffering, setIsBuffering] = useState(false);
+
+        useEffect(() => {
+          if (!videoRef.current) return;
+          const video = videoRef.current;
+          const src = channel.url;
+
+          if (Hls.isSupported()) {
+            const hls = new Hls();
+            hlsRef.current = hls;
+            hls.loadSource(src);
+            hls.attachMedia(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+              setVideoError(null);
+              setIsBuffering(false);
+              if (isPlaying) video.play().catch(err => {
+                console.error('Error playing video:', err);
+                setVideoError('تعذر تشغيل البث. حاول مرة أخرى.');
+              });
+            });
+
+            hls.on(Hls.Events.ERROR, (event, data) => {
+              if (data.fatal) {
+                setVideoError('خطأ في تحميل البث المباشر. تحقق من الاتصال بالإنترنت.');
+                setIsBuffering(false);
+              }
+            });
+
+            return () => {
+              hls.destroy();
+            };
+          } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            video.src = src;
+            video.addEventListener('loadedmetadata', () => {
+              setVideoError(null);
+              if (isPlaying) video.play().catch(err => {
+                console.error('Error playing video:', err);
+                setVideoError('تعذر تشغيل البث. حاول مرة أخرى.');
+              });
+            });
+          } else {
+            setVideoError('المتصفح لا يدعم تشغيل البث المباشر.');
+          }
+
+          return () => {
+            if (videoRef.current) videoRef.current.pause();
+          };
+        }, [channel.url, isPlaying]);
+
+        useEffect(() => {
+          if (videoRef.current) {
+            videoRef.current.volume = isMuted ? 0 : volume / 100;
+            videoRef.current.muted = isMuted;
+            if (isPlaying) {
+              videoRef.current.play().catch(err => {
+                console.error('Error playing video:', err);
+                setVideoError('تعذر تشغيل البث. حاول مرة أخرى.');
+              });
+            } else {
+              videoRef.current.pause();
+            }
+          }
+        }, [isPlaying, isMuted, volume]);
+
+        const togglePlay = useCallback(() => {
+          setIsPlaying(prev => !prev);
+        }, []);
+
+        return (
+          <div className={`fixed inset-0 bg-black z-50 flex flex-col ${isFullscreen ? '' : 'p-4'}`}>
+            {!isFullscreen && (
+              <div className="flex items-center justify-between p-4 bg-gray-900">
+                <div className="flex items-center gap-4">
+                  <button
+                    onClick={onClose}
+                    className="p-2 hover:bg-gray-700 rounded-full"
+                    aria-label="إغلاق المشغل"
+                  >
+                    <X className="w-6 h-6 text-white" />
+                  </button>
+                  <div>
+                    <h3 className="text-white font-bold text-lg">{channel.name}</h3>
+                    <p className="text-gray-400 text-sm">{channel.quality} • {channel.viewers} مشاهد</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {channel.live && (
+                    <span className="bg-red-600 text-white px-3 py-1 rounded text-sm font-bold animate-pulse">
+                      مباشر
+                    </span>
+                  )}
+                  <button
+                    onClick={() => toggleFavorite(channel.id)}
+                    className="p-2 hover:bg-gray-700 rounded-full"
+                    aria-label={favoriteChannels.includes(channel.id) ? 'إزالة من المفضلة' : 'إضافة إلى المفضلة'}
+                  >
+                    <Heart
+                      className={`w-5 h-5 ${favoriteChannels.includes(channel.id) ? 'text-red-500 fill-current' : 'text-white'}`}
+                    />
+                  </button>
+                </div>
+              </div>
+            )}
+            <div className="flex-1 relative bg-black flex items-center justify-center">
+              {videoError ? (
+                <div className="text-center text-red-500 p-4">
+                  {videoError}
+                </div>
+              ) : (
+                <div className="relative w-full h-full">
+                  <video ref={videoRef} className="w-full h-full object-contain" playsInline />
+                  {isBuffering && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50">
+                      <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                    </div>
+                  )}
+                </div>
+              )}
+              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/50 to-transparent p-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <button
+                      onClick={togglePlay}
+                      className="p-3 bg-blue-600 hover:bg-blue-700 rounded-full transition-colors"
+                      aria-label={isPlaying ? 'إيقاف مؤقت' : 'تشغيل'}
+                    >
+                      {isPlaying ? <Pause className="w-6 h-6 text-white" /> : <Play className="w-6 h-6 text-white" />}
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (videoRef.current) {
+                          videoRef.current.currentTime = Math.max(videoRef.current.currentTime - 10, 0);
+                        }
+                      }}
+                      className="p-2 hover:bg-gray-700 rounded-full transition-colors"
+                      aria-label="الرجوع للخلف 10 ثوان"
+                    >
+                      <SkipBack className="w-5 h-5 text-white" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (videoRef.current) {
+                          videoRef.current.currentTime += 10;
+                        }
+                      }}
+                      className="p-2 hover:bg-gray-700 rounded-full transition-colors"
+                      aria-label="التخطي للأمام 10 ثوان"
+                    >
+                      <SkipForward className="w-5 h-5 text-white" />
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setIsMuted(!isMuted)}
+                      className="p-2 hover:bg-gray-700 rounded-full transition-colors"
+                      aria-label={isMuted ? 'إلغاء كتم الصوت' : 'كتم الصوت'}
+                    >
+                      {isMuted ? <VolumeX className="w-5 h-5 text-white" /> : <Volume2 className="w-5 h-5 text-white" />}
+                    </button>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={isMuted ? 0 : volume}
+                      onChange={(e) => {
+                        setVolume(Number(e.target.value));
+                        setIsMuted(e.target.value === '0');
+                      }}
+                      className="w-20 accent-blue-500"
+                      aria-label="مستوى الصوت"
+                    />
+                  </div>
+                  <button
+                    onClick={toggleFullscreen}
+                    className="p-2 hover:bg-gray-700 rounded-full transition-colors"
+                    aria-label={isFullscreen ? 'تصغير الشاشة' : 'تكبير الشاشة'}
+                  >
+                    {isFullscreen ? <Minimize className="w-5 h-5 text-white" /> : <Maximize className="w-5 h-5 text-white" />}
+                  </button>
+                </div>
+                <div className="mt-4">
+                  <div className="flex justify-between text-xs text-gray-300 mb-2">
+                    <span className="font-medium">{channel.name}</span>
+                    <span className="bg-red-600 px-2 py-1 rounded text-xs animate-pulse">
+                      مباشر
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      // Age Verification Modal
+      const AgeVerificationModal = ({ onVerify, onCancel }) => (
+        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50">
+          <div className="bg-gray-800 p-8 rounded-lg max-w-md mx-4 text-center">
+            <Lock className="w-16 h-16 text-yellow-400 mx-auto mb-4" />
+            <h2 className="text-2xl font-bold text-white mb-4">تحقق من العمر</h2>
+            <p className="text-gray-300 mb-6">
+              هذا المحتوى مخصص للبالغين فقط (+18). يرجى التأكيد أنك تبلغ من العمر 18 عاماً أو أكثر.
+            </p>
+            <div className="flex gap-4">
+              <button
+                onClick={onVerify}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white py-3 px-6 rounded font-semibold"
+                aria-label="تأكيد العمر (18+)"
+              >
+                أؤكد (18+)
+              </button>
+              <button
+                onClick={onCancel}
+                className="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-3 px-6 rounded font-semibold"
+                aria-label="إلغاء"
+              >
+                إلغاء
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-gray-900 text-white">
+          <header className="bg-black bg-opacity-50 backdrop-blur-sm p-4 sticky top-0 z-40">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={() => setIsMenuOpen(!isMenuOpen)}
+                  className="p-2 hover:bg-gray-700 rounded"
+                  aria-label={isMenuOpen ? 'إغلاق القائمة' : 'فتح القائمة'}
+                  aria-expanded={isMenuOpen}
+                >
+                  {isMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+                </button>
+                <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-600 bg-clip-text text-transparent">
+                  STREAM PRO
+                </h1>
+              </div>
+              <div className="flex items-center gap-4">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="البحث..."
+                    className="bg-gray-800 pl-10 pr-4 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    aria-label="البحث عن القنوات"
+                  />
+                </div>
+              </div>
+            </div>
+          </header>
+          {isMenuOpen && (
+            <div className="fixed inset-0 z-30 lg:static lg:inset-auto">
+              <div
+                className="absolute inset-0 bg-black bg-opacity-50 lg:hidden"
+                onClick={() => setIsMenuOpen(false)}
+                aria-hidden="true"
+              ></div>
+              <div className="absolute right-0 top-0 h-full w-64 bg-gray-800 p-4 lg:static lg:w-auto">
+                <div className="space-y-2 mt-16 lg:mt-0">
+                  <button
+                    onClick={() => {
+                      setSelectedCategory('sports');
+                      setIsMenuOpen(false);
+                    }}
+                    className={`w-full text-right p-3 rounded ${selectedCategory === 'sports' ? 'bg-blue-600' : 'hover:bg-gray-700'}`}
+                    aria-label="القنوات الرياضية"
+                  >
+                    🏆 القنوات الرياضية
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSelectedCategory('european');
+                      setIsMenuOpen(false);
+                    }}
+                    className={`w-full text-right p-3 rounded ${selectedCategory === 'european' ? 'bg-red-600' : 'hover:bg-gray-700'}`}
+                    aria-label="القنوات الأوروبية (18+)"
+                  >
+                    🔒 القنوات الأوروبية (18+)
+                  </button>
+                  <button className="w-full text-right p-3 rounded hover:bg-gray-700" aria-label="المفضلة">
+                    ⭐ المفضلة
+                  </button>
+                  <button className="w-full text-right p-3 rounded hover:bg-gray-700" aria-label="المشاهدة المتأخرة">
+                    📺 المشاهدة المتأخرة
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+          <main className="p-6">
+            {isLoading && <div className="text-center text-white">جارٍ التحميل...</div>}
+            {error && <div className="text-center text-red-500">{error}</div>}
+            {!isLoading && !error && (
+              <>
+                <div className="mb-8">
+                  <h2 className="text-3xl font-bold mb-2">
+                    {selectedCategory === 'sports' ? '🏆 القنوات الرياضية المباشرة' : '🔒 القنوات الأوروبية الحصرية'}
+                  </h2>
+                  <p className="text-gray-400">
+                    {selectedCategory === 'sports'
+                      ? 'استمتع بأفضل المباريات والأحداث الرياضية بجودة عالية'
+                      : 'محتوى حصري للبالغين فقط - جودة فائقة ومحتوى متنوع'}
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+                  {filteredChannels.length > 0 ? (
+                    filteredChannels.map(channel => (
+                      <ChannelCard key={channel.id} channel={channel} />
+                    ))
+                  ) : (
+                    <div className="col-span-full text-center text-gray-400">لا توجد قنوات مطابقة</div>
+                  )}
+                </div>
+                <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="bg-gradient-to-r from-blue-600 to-blue-700 p-6 rounded-lg text-center">
+                    <div className="text-3xl font-bold">500+</div>
+                    <div className="text-blue-100">قناة متاحة</div>
+                  </div>
+                  <div className="bg-gradient-to-r from-green-600 to-green-700 p-6 rounded-lg text-center">
+                    <div className="text-3xl font-bold">24/7</div>
+                    <div className="text-green-100">بث مباشر</div>
+                  </div>
+                  <div className="bg-gradient-to-r from-purple-600 to-purple-700 p-6 rounded-lg text-center">
+                    <div className="text-3xl font-bold">4K</div>
+                    <div className="text-purple-100">جودة فائقة</div>
+                  </div>
+                </div>
+              </>
+            )}
+          </main>
+          {isPlayerOpen && selectedChannel && (
+            <VideoPlayer channel={selectedChannel} onClose={closePlayer} />
+          )}
+          {showAgeVerification && (
+            <AgeVerificationModal
+              onVerify={handleAgeVerification}
+              onCancel={() => setShowAgeVerification(false)}
+            />
+          )}
+          <footer className="bg-black bg-opacity-30 p-6 mt-12 text-center text-gray-400">
+            <p>© 2025 STREAM PRO - جميع الحقوق محفوظة</p>
+          </footer>
+        </div>
+      );
+    };
+
+    ReactDOM.render(<StreamingApp />, document.getElementById('root'));
+  </script>
+</body>
+</html>
