@@ -48,6 +48,8 @@
   .pbar{display:flex;gap:8px;align-items:center;padding:10px 16px;background:#0009;flex-wrap:wrap}
   .pbar .title{margin-inline-end:auto;font-weight:600}
   #err{color:#ff8a8a;padding:0 16px}
+  #pServers{display:flex;gap:6px;flex-wrap:wrap}
+  #pServers button{font-size:.85rem;padding:6px 10px}
   /* modal */
   .modal{position:fixed;inset:0;background:#000b;z-index:15;display:none;place-items:center;padding:16px}
   .modal.open{display:grid}
@@ -107,6 +109,7 @@
     <span class="title" id="pTitle"></span>
     <button id="pPrev">⏮ السابق</button>
     <button id="pNext">التالي ⏭</button>
+    <span id="pServers"></span>
     <select id="pQuality" title="الجودة"></select>
     <button id="pFull">⛶ ملء الشاشة</button>
     <button id="pClose">✕ إغلاق</button>
@@ -163,11 +166,12 @@
 
     $("#grid").innerHTML = shown.length ? shown.map(i => {
       const img = i.kind === "ch" ? i.logo : i.poster;
+      const sub = i.kind === "ch" ? [i.flag, i.country || i.category].filter(Boolean).join(" ") : i.category;
       return `<div class="card ${i.kind === "se" ? "poster" : ""}" tabindex="0" data-id="${esc(i.id)}" data-kind="${i.kind}">
         <div class="thumb">${img ? `<img src="${esc(img)}" alt="" loading="lazy">` : initials(i.name)}</div>
         ${i.kind === "ch" ? '<span class="live">مباشر</span>' : ""}
         <button class="fav" data-fav="${esc(i.id)}" aria-label="مفضلة">${state.favs.has(i.id) ? "❤️" : "🤍"}</button>
-        <div class="meta"><b>${esc(i.name)}</b><small>${esc(i.category || "")}${i.kind === "se" ? ` · ${i.episodes.length} حلقة` : ""}</small></div>
+        <div class="meta"><b>${esc(i.name)}</b><small>${esc(sub || "")}${i.kind === "se" ? ` · ${i.episodes.length} حلقة` : ""}</small></div>
       </div>`;
     }).join("") : `<div class="empty">${state.tab === "favorites" ? "ما في شي بالمفضلة لسا" : "ما في نتائج"}</div>`;
   }
@@ -231,13 +235,20 @@
     $("#player").classList.add("open");
     load();
   }
-  function load() {
+  // كل قناة إلها يا "url" وحدة يا "servers": [{name, url}, ...]
+  const serversOf = item => item.servers?.length ? item.servers : [{ name: "سيرفر 1", url: item.url }];
+  function load(srv = 0) {
     const item = state.queue[state.idx]; if (!item) return;
+    const servers = serversOf(item);
+    state.srv = srv;
     $("#pTitle").textContent = item.name;
     $("#err").textContent = "";
+    $("#pServers").innerHTML = servers.length > 1 ? servers.map((s, i) =>
+      `<button class="${i === srv ? "active" : ""}" data-srv="${i}">${esc(s.name || "سيرفر " + (i + 1))}</button>`).join("") : "";
     $("#pQuality").innerHTML = ""; $("#pQuality").style.display = "none";
     if (hls) { hls.destroy(); hls = null; }
-    const url = item.url;
+    video.pause(); video.removeAttribute("src"); video.load();
+    const url = servers[srv].url;
     if (/\.m3u8(\?|$)/i.test(url) && window.Hls && Hls.isSupported()) {
       hls = new Hls({ enableWorker: true, lowLatencyMode: true });
       hls.loadSource(url); hls.attachMedia(video);
@@ -252,19 +263,26 @@
       });
       hls.on(Hls.Events.ERROR, (_, d) => {
         if (!d.fatal) return;
-        if (d.type === Hls.ErrorTypes.NETWORK_ERROR) { $("#err").textContent = "مشكلة بالشبكة، عم حاول من جديد…"; hls.startLoad(); }
+        if (d.type === Hls.ErrorTypes.NETWORK_ERROR) failServer();
         else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
-        else $("#err").textContent = "ما قدرت شغّل هالبث.";
+        else failServer();
       });
     } else {
       video.src = url;
       video.play().catch(() => {});
     }
   }
-  video.addEventListener("error", () => { if (!hls) $("#err").textContent = "ما قدرت شغّل هالبث."; });
+  // إذا السيرفر فشل، جرّب اللي بعده تلقائيًا
+  function failServer() {
+    const servers = serversOf(state.queue[state.idx] || {});
+    if (state.srv + 1 < servers.length) { $("#err").textContent = "السيرفر ما اشتغل، عم جرّب اللي بعده…"; load(state.srv + 1); }
+    else $("#err").textContent = "ولا سيرفر اشتغل لهالقناة هلق. جرّب قناة تانية.";
+  }
+  video.addEventListener("error", () => { if (!hls && video.getAttribute("src")) failServer(); });
+  $("#pServers").onclick = e => { const b = e.target.closest("[data-srv]"); if (b) load(+b.dataset.srv); };
   $("#pQuality").onchange = e => { if (hls) hls.currentLevel = +e.target.value; };
-  $("#pNext").onclick = () => { state.idx = (state.idx + 1) % state.queue.length; load(); };
-  $("#pPrev").onclick = () => { state.idx = (state.idx - 1 + state.queue.length) % state.queue.length; load(); };
+  $("#pNext").onclick = () => { state.idx = (state.idx + 1) % state.queue.length; load(0); };
+  $("#pPrev").onclick = () => { state.idx = (state.idx - 1 + state.queue.length) % state.queue.length; load(0); };
   $("#pFull").onclick = () => {
     const el = $("#player");
     document.fullscreenElement ? document.exitFullscreen() : (el.requestFullscreen?.() || video.webkitEnterFullscreen?.());
