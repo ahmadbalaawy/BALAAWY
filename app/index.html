@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>بلعاوي TV</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
+<script src="data.js"></script>
+<style>
+  :root{
+    --bg:#0b0d12; --panel:#151923; --card:#1c2130; --text:#f2f4f8; --muted:#8b93a7;
+    --accent:#e50914; --accent2:#ff6a3d; --focus:#ffd34d;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:Cairo,system-ui,sans-serif}
+  header{position:sticky;top:0;z-index:5;display:flex;gap:12px;align-items:center;flex-wrap:wrap;
+    padding:12px 16px;background:linear-gradient(180deg,#000c,#0000),var(--bg)}
+  .logo{font-weight:800;font-size:1.5rem;background:linear-gradient(90deg,var(--accent),var(--accent2));
+    -webkit-background-clip:text;background-clip:text;color:transparent;margin-inline-end:auto}
+  nav{display:flex;gap:8px;flex-wrap:wrap}
+  button,.btn{font:inherit;cursor:pointer;border:0;border-radius:10px;padding:8px 14px;background:var(--panel);color:var(--text)}
+  button.active{background:var(--accent)}
+  button:focus-visible,.card:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{
+    outline:3px solid var(--focus);outline-offset:2px}
+  input,select,textarea{font:inherit;background:var(--panel);color:var(--text);border:1px solid #2a3142;border-radius:10px;padding:8px 12px}
+  #search{min-width:180px;flex:1;max-width:320px}
+  main{padding:8px 16px 40px}
+  .chips{display:flex;gap:8px;overflow-x:auto;padding:6px 0 12px}
+  .chips button{white-space:nowrap;font-size:.9rem}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px}
+  .card{position:relative;background:var(--card);border-radius:14px;overflow:hidden;cursor:pointer;transition:transform .15s}
+  .card:hover,.card:focus-visible{transform:scale(1.04)}
+  .thumb{aspect-ratio:16/10;display:grid;place-items:center;background:linear-gradient(135deg,#232a3d,#141824);font-size:2rem;font-weight:800;color:#fff8}
+  .card.poster .thumb{aspect-ratio:2/3}
+  .thumb img{width:100%;height:100%;object-fit:cover}
+  .meta{padding:8px 10px}
+  .meta b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .meta small{color:var(--muted)}
+  .fav{position:absolute;top:6px;left:6px;background:#000a;border-radius:50%;width:32px;height:32px;padding:0;font-size:1rem}
+  .live{position:absolute;top:8px;right:8px;background:var(--accent);font-size:.7rem;padding:2px 8px;border-radius:6px}
+  .empty{color:var(--muted);text-align:center;padding:40px}
+  /* player */
+  #player{position:fixed;inset:0;background:#000;z-index:20;display:none;flex-direction:column}
+  #player.open{display:flex}
+  #player video{flex:1;width:100%;min-height:0;background:#000}
+  .pbar{display:flex;gap:8px;align-items:center;padding:10px 16px;background:#0009;flex-wrap:wrap}
+  .pbar .title{margin-inline-end:auto;font-weight:600}
+  #err{color:#ff8a8a;padding:0 16px}
+  /* modal */
+  .modal{position:fixed;inset:0;background:#000b;z-index:15;display:none;place-items:center;padding:16px}
+  .modal.open{display:grid}
+  .box{background:var(--panel);border-radius:16px;padding:20px;width:min(640px,100%);max-height:90vh;overflow:auto}
+  .box h2{margin-top:0}
+  .eps{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin-top:12px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+  .row>input,.row>textarea{flex:1}
+  textarea{width:100%;min-height:90px}
+  .muted{color:var(--muted);font-size:.9rem}
+  @media (min-width:1200px){ body{font-size:18px} .grid{grid-template-columns:repeat(auto-fill,minmax(200px,1fr))} }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo" id="appName">TV</div>
+  <nav id="tabs">
+    <button data-tab="channels" class="active">📺 القنوات</button>
+    <button data-tab="series">🎬 المسلسلات</button>
+    <button data-tab="favorites">❤️ المفضلة</button>
+    <button id="importBtn">➕ إضافة قائمة</button>
+  </nav>
+  <input id="search" type="search" placeholder="ابحث…">
+</header>
+
+<main>
+  <div class="chips" id="chips"></div>
+  <div class="grid" id="grid"></div>
+</main>
+
+<!-- Series modal -->
+<div class="modal" id="seriesModal">
+  <div class="box">
+    <h2 id="sTitle"></h2>
+    <p class="muted" id="sDesc"></p>
+    <div class="eps" id="sEps"></div>
+    <div class="row"><button data-close>إغلاق</button></div>
+  </div>
+</div>
+
+<!-- Import modal -->
+<div class="modal" id="importModal">
+  <div class="box">
+    <h2>إضافة قنوات</h2>
+    <p class="muted">حط رابط قائمة M3U، أو ارفع ملف M3U، أو أضف قناة وحدة. بيتخزنوا على هالجهاز.</p>
+    <div class="row"><input id="m3uUrl" placeholder="https://…/playlist.m3u"><button id="m3uUrlBtn">تحميل</button></div>
+    <div class="row"><input type="file" id="m3uFile" accept=".m3u,.m3u8,.txt"></div>
+    <div class="row"><input id="oneName" placeholder="اسم القناة"><input id="oneUrl" placeholder="رابط m3u8"><button id="oneBtn">إضافة</button></div>
+    <p class="muted" id="importMsg"></p>
+    <div class="row"><button id="clearImported">حذف القنوات المضافة</button><button data-close>إغلاق</button></div>
+  </div>
+</div>
+
+<!-- Player -->
+<div id="player">
+  <div class="pbar">
+    <span class="title" id="pTitle"></span>
+    <button id="pPrev">⏮ السابق</button>
+    <button id="pNext">التالي ⏭</button>
+    <select id="pQuality" title="الجودة"></select>
+    <button id="pFull">⛶ ملء الشاشة</button>
+    <button id="pClose">✕ إغلاق</button>
+  </div>
+  <video id="video" controls playsinline autoplay></video>
+  <div id="err"></div>
+</div>
+
+<script>
+(() => {
+  const D = window.APP_DATA || { channels: [], series: [] };
+  const $ = s => document.querySelector(s);
+  const store = {
+    get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+  };
+
+  const state = {
+    tab: "channels", cat: "الكل", q: "",
+    favs: new Set(store.get("favs", [])),
+    imported: store.get("imported", []),
+    queue: [], idx: 0
+  };
+
+  document.title = D.appName || document.title;
+  $("#appName").textContent = D.appName || "TV";
+
+  const allChannels = () => [...D.channels, ...state.imported];
+  const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  const initials = n => esc((n || "?").trim().slice(0, 2));
+
+  function items() {
+    let list;
+    if (state.tab === "channels") list = allChannels().map(c => ({ ...c, kind: "ch" }));
+    else if (state.tab === "series") list = D.series.map(s => ({ ...s, name: s.title, kind: "se" }));
+    else list = [
+      ...allChannels().filter(c => state.favs.has(c.id)).map(c => ({ ...c, kind: "ch" })),
+      ...D.series.filter(s => state.favs.has(s.id)).map(s => ({ ...s, name: s.title, kind: "se" }))
+    ];
+    return list;
+  }
+
+  function render() {
+    const list = items();
+    const cats = ["الكل", ...new Set(list.map(i => i.category).filter(Boolean))];
+    if (!cats.includes(state.cat)) state.cat = "الكل";
+    $("#chips").innerHTML = cats.map(c =>
+      `<button class="${c === state.cat ? "active" : ""}" data-cat="${esc(c)}">${esc(c)}</button>`).join("");
+
+    const q = state.q.trim().toLowerCase();
+    const shown = list.filter(i =>
+      (state.cat === "الكل" || i.category === state.cat) &&
+      (!q || (i.name || "").toLowerCase().includes(q)));
+
+    $("#grid").innerHTML = shown.length ? shown.map(i => {
+      const img = i.kind === "ch" ? i.logo : i.poster;
+      return `<div class="card ${i.kind === "se" ? "poster" : ""}" tabindex="0" data-id="${esc(i.id)}" data-kind="${i.kind}">
+        <div class="thumb">${img ? `<img src="${esc(img)}" alt="" loading="lazy">` : initials(i.name)}</div>
+        ${i.kind === "ch" ? '<span class="live">مباشر</span>' : ""}
+        <button class="fav" data-fav="${esc(i.id)}" aria-label="مفضلة">${state.favs.has(i.id) ? "❤️" : "🤍"}</button>
+        <div class="meta"><b>${esc(i.name)}</b><small>${esc(i.category || "")}${i.kind === "se" ? ` · ${i.episodes.length} حلقة` : ""}</small></div>
+      </div>`;
+    }).join("") : `<div class="empty">${state.tab === "favorites" ? "ما في شي بالمفضلة لسا" : "ما في نتائج"}</div>`;
+  }
+
+  // ---------- events ----------
+  $("#tabs").addEventListener("click", e => {
+    const b = e.target.closest("[data-tab]"); if (!b) return;
+    state.tab = b.dataset.tab; state.cat = "الكل";
+    document.querySelectorAll("#tabs [data-tab]").forEach(x => x.classList.toggle("active", x === b));
+    render();
+  });
+  $("#chips").addEventListener("click", e => {
+    const b = e.target.closest("[data-cat]"); if (b) { state.cat = b.dataset.cat; render(); }
+  });
+  $("#search").addEventListener("input", e => { state.q = e.target.value; render(); });
+
+  function openItem(card) {
+    const { id, kind } = card.dataset;
+    if (kind === "ch") {
+      const list = items().filter(i => i.kind === "ch");
+      play(list, Math.max(0, list.findIndex(c => c.id === id)));
+    } else openSeries(D.series.find(s => s.id === id));
+  }
+  $("#grid").addEventListener("click", e => {
+    const f = e.target.closest("[data-fav]");
+    if (f) {
+      e.stopPropagation();
+      const id = f.dataset.fav;
+      state.favs.has(id) ? state.favs.delete(id) : state.favs.add(id);
+      store.set("favs", [...state.favs]); render(); return;
+    }
+    const c = e.target.closest(".card"); if (c) openItem(c);
+  });
+  $("#grid").addEventListener("keydown", e => {
+    if (e.key === "Enter" && e.target.classList.contains("card")) openItem(e.target);
+  });
+
+  // ---------- series ----------
+  function openSeries(s) {
+    if (!s) return;
+    $("#sTitle").textContent = s.title;
+    $("#sDesc").textContent = s.description || "";
+    $("#sEps").innerHTML = s.episodes.map((ep, i) => `<button data-ep="${i}">${esc(ep.title || "الحلقة " + (i + 1))}</button>`).join("");
+    $("#sEps").onclick = e => {
+      const b = e.target.closest("[data-ep]"); if (!b) return;
+      closeModals();
+      play(s.episodes.map(ep => ({ name: `${s.title} — ${ep.title}`, url: ep.url })), +b.dataset.ep);
+    };
+    $("#seriesModal").classList.add("open");
+    $("#sEps button")?.focus();
+  }
+  function closeModals() { document.querySelectorAll(".modal").forEach(m => m.classList.remove("open")); }
+  document.querySelectorAll("[data-close]").forEach(b => b.onclick = closeModals);
+  document.querySelectorAll(".modal").forEach(m => m.addEventListener("click", e => { if (e.target === m) closeModals(); }));
+
+  // ---------- player ----------
+  const video = $("#video");
+  let hls = null;
+  function play(queue, idx) {
+    state.queue = queue; state.idx = idx;
+    $("#player").classList.add("open");
+    load();
+  }
+  function load() {
+    const item = state.queue[state.idx]; if (!item) return;
+    $("#pTitle").textContent = item.name;
+    $("#err").textContent = "";
+    $("#pQuality").innerHTML = ""; $("#pQuality").style.display = "none";
+    if (hls) { hls.destroy(); hls = null; }
+    const url = item.url;
+    if (/\.m3u8(\?|$)/i.test(url) && window.Hls && Hls.isSupported()) {
+      hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+      hls.loadSource(url); hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, (_, d) => {
+        video.play().catch(() => {});
+        if (d.levels.length > 1) {
+          const sel = $("#pQuality");
+          sel.innerHTML = `<option value="-1">تلقائي</option>` +
+            d.levels.map((l, i) => `<option value="${i}">${l.height ? l.height + "p" : "مستوى " + (i + 1)}</option>`).join("");
+          sel.style.display = "";
+        }
+      });
+      hls.on(Hls.Events.ERROR, (_, d) => {
+        if (!d.fatal) return;
+        if (d.type === Hls.ErrorTypes.NETWORK_ERROR) { $("#err").textContent = "مشكلة بالشبكة، عم حاول من جديد…"; hls.startLoad(); }
+        else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
+        else $("#err").textContent = "ما قدرت شغّل هالبث.";
+      });
+    } else {
+      video.src = url;
+      video.play().catch(() => {});
+    }
+  }
+  video.addEventListener("error", () => { if (!hls) $("#err").textContent = "ما قدرت شغّل هالبث."; });
+  $("#pQuality").onchange = e => { if (hls) hls.currentLevel = +e.target.value; };
+  $("#pNext").onclick = () => { state.idx = (state.idx + 1) % state.queue.length; load(); };
+  $("#pPrev").onclick = () => { state.idx = (state.idx - 1 + state.queue.length) % state.queue.length; load(); };
+  $("#pFull").onclick = () => {
+    const el = $("#player");
+    document.fullscreenElement ? document.exitFullscreen() : (el.requestFullscreen?.() || video.webkitEnterFullscreen?.());
+  };
+  function closePlayer() {
+    if (document.fullscreenElement) document.exitFullscreen();
+    if (hls) { hls.destroy(); hls = null; }
+    video.pause(); video.removeAttribute("src"); video.load();
+    $("#player").classList.remove("open");
+  }
+  $("#pClose").onclick = closePlayer;
+
+  // ---------- keyboard / TV remote ----------
+  document.addEventListener("keydown", e => {
+    const playerOpen = $("#player").classList.contains("open");
+    if (e.key === "Escape" || e.key === "Backspace" && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) {
+      if (playerOpen) { closePlayer(); e.preventDefault(); }
+      else if (document.querySelector(".modal.open")) { closeModals(); e.preventDefault(); }
+      return;
+    }
+    if (playerOpen) {
+      if (e.key === "ChannelUp" || e.key === "PageUp") $("#pNext").click();
+      if (e.key === "ChannelDown" || e.key === "PageDown") $("#pPrev").click();
+      return;
+    }
+    // arrow navigation across the grid
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return;
+    const cards = [...document.querySelectorAll("#grid .card")];
+    const cur = cards.indexOf(document.activeElement);
+    if (cur < 0) { if (cards[0] && !/INPUT/.test(document.activeElement.tagName)) { cards[0].focus(); e.preventDefault(); } return; }
+    const cols = Math.max(1, Math.round($("#grid").clientWidth / cards[0].offsetWidth));
+    const step = { ArrowLeft: 1, ArrowRight: -1, ArrowDown: cols, ArrowUp: -cols }[e.key]; // RTL
+    const next = cur + step;
+    if (next < 0) { $("#tabs button.active").focus(); }
+    else if (cards[next]) cards[next].focus();
+    e.preventDefault();
+  });
+
+  // ---------- M3U import ----------
+  function parseM3U(text) {
+    const out = []; let meta = null;
+    for (const raw of text.split(/\r?\n/)) {
+      const line = raw.trim();
+      if (line.startsWith("#EXTINF")) {
+        const attr = k => (line.match(new RegExp(k + '="([^"]*)"')) || [])[1] || "";
+        meta = { name: line.split(",").slice(1).join(",").trim() || attr("tvg-name"), logo: attr("tvg-logo"), category: attr("group-title") || "مضافة" };
+      } else if (line && !line.startsWith("#")) {
+        const m = meta || { name: line.split("/").pop(), logo: "", category: "مضافة" };
+        out.push({ id: "imp-" + Date.now().toString(36) + "-" + out.length, ...m, url: line });
+        meta = null;
+      }
+    }
+    return out;
+  }
+  function addImported(list) {
+    state.imported.push(...list); store.set("imported", state.imported);
+    $("#importMsg").textContent = `انضافت ${list.length} قناة.`; render();
+  }
+  $("#importBtn").onclick = () => { $("#importMsg").textContent = ""; $("#importModal").classList.add("open"); $("#m3uUrl").focus(); };
+  $("#m3uUrlBtn").onclick = async () => {
+    try {
+      const r = await fetch($("#m3uUrl").value.trim());
+      addImported(parseM3U(await r.text()));
+    } catch { $("#importMsg").textContent = "ما قدرت حمّل القائمة (ممكن الرابط ما بيسمح بالتحميل من المتصفح، جرّب ترفعها كملف)."; }
+  };
+  $("#m3uFile").onchange = async e => { const f = e.target.files[0]; if (f) addImported(parseM3U(await f.text())); };
+  $("#oneBtn").onclick = () => {
+    const name = $("#oneName").value.trim(), url = $("#oneUrl").value.trim();
+    if (!url) return;
+    addImported([{ id: "imp-" + Date.now().toString(36), name: name || "قناة", logo: "", category: "مضافة", url }]);
+    $("#oneName").value = $("#oneUrl").value = "";
+  };
+  $("#clearImported").onclick = () => { state.imported = []; store.set("imported", []); $("#importMsg").textContent = "انحذفت."; render(); };
+
+  render();
+})();
+</script>
+</body>
+</html>
